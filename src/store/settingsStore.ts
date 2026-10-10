@@ -128,6 +128,7 @@ function ensureAiTranslationSettings(persistedSettings: PersistedSettings): Pers
   const ai = next.ai as typeof next.ai & {
     summaryPrompt?: string;
     translationPrompt?: string;
+    englishLearningPrompt?: string;
     deepThinkingEnabled?: boolean;
     translation?: {
       useSharedAi?: boolean;
@@ -138,6 +139,7 @@ function ensureAiTranslationSettings(persistedSettings: PersistedSettings): Pers
 
   ai.summaryPrompt = ai.summaryPrompt ?? '';
   ai.translationPrompt = ai.translationPrompt ?? '';
+  ai.englishLearningPrompt = ai.englishLearningPrompt ?? '';
   ai.deepThinkingEnabled = ai.deepThinkingEnabled ?? false;
 
   ai.translation = {

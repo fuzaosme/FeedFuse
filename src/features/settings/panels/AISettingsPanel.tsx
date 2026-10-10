@@ -233,7 +233,29 @@ export default function AISettingsPanel({
             />
           </div>
 
-          {/* 摘要提示词放在翻译配置前，避免被翻译专属配置区打断。 */}
+          <div className="px-4 py-3.5">
+            <Label htmlFor="ai-english-learning-prompt" className="mb-2 block">
+              <SettingTooltipLabel
+                label="英语学习提示词"
+                description="用于选句讲解，复用主 AI 配置。留空使用内置模板，可自由调整译文、句法或重点表达的讲解方式。"
+                className="text-sm font-medium text-foreground"
+              />
+            </Label>
+            <Textarea
+              id="ai-english-learning-prompt"
+              aria-label="英语学习提示词"
+              value={ai.englishLearningPrompt}
+              onChange={(event) =>
+                onChange((nextDraft) => {
+                  nextDraft.persisted.ai.englishLearningPrompt = event.target.value;
+                })
+              }
+              placeholder="例如：先给自然中文译文，再简要解释句子结构和重点词组。"
+              className="min-h-28"
+            />
+          </div>
+
+          {/* 提示词放在翻译配置前，避免被翻译专属配置区打断。 */}
           <div className="px-4 py-3.5">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>

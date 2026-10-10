@@ -39,6 +39,7 @@ const defaultAISettings: AIPersistedSettings = {
   apiBaseUrl: '',
   summaryPrompt: '',
   translationPrompt: '',
+  englishLearningPrompt: '',
   translation: {
     useSharedAi: true,
     model: '',
@@ -147,6 +148,7 @@ function normalizeAISettings(input: Record<string, unknown>): AIPersistedSetting
     apiBaseUrl: readString(aiInput.apiBaseUrl, defaultAISettings.apiBaseUrl),
     summaryPrompt: readString(aiInput.summaryPrompt, defaultAISettings.summaryPrompt).trim(),
     translationPrompt: readString(aiInput.translationPrompt, defaultAISettings.translationPrompt).trim(),
+    englishLearningPrompt: readString(aiInput.englishLearningPrompt, defaultAISettings.englishLearningPrompt).trim(),
     translation: {
       useSharedAi: readBoolean(
         translationInput.useSharedAi,

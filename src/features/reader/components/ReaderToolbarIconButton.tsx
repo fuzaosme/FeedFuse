@@ -12,6 +12,7 @@ type ReaderToolbarIconButtonProps = {
   icon: ComponentType<{ className?: string }>;
   label: string;
   pressed?: boolean;
+  toggle?: boolean;
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
@@ -22,6 +23,7 @@ export default function ReaderToolbarIconButton({
   icon: Icon,
   label,
   pressed = false,
+  toggle = false,
   disabled = false,
   onClick,
   className,
@@ -40,7 +42,7 @@ export default function ReaderToolbarIconButton({
         className,
       )}
       aria-label={label}
-      aria-pressed={pressed || undefined}
+      aria-pressed={toggle ? pressed : pressed || undefined}
       disabled={disabled}
       onClick={onClick}
     >

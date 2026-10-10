@@ -10,8 +10,10 @@ import {
   type UIEvent,
 } from "react";
 import {
+  BookOpen,
   Download,
   FileText,
+  GraduationCap,
   Languages,
   Search,
   Settings as SettingsIcon,
@@ -48,6 +50,10 @@ import ArticleScrollAssist from "./ArticleScrollAssist";
 import ArticleImagePreview from "./ArticleImagePreview";
 import AiSummaryInlineText from "./AiSummaryInlineText";
 import ReaderToolbarIconButton from "../../reader/components/ReaderToolbarIconButton";
+import EnglishLearningCard from "../../english-learning/components/EnglishLearningCard";
+import VocabularyDrawer from "../../english-learning/components/VocabularyDrawer";
+import { useEnglishLearning } from "../../english-learning/hooks/useEnglishLearning";
+import { useLearningStore } from "../../english-learning/learningStore";
 import { READER_RESIZE_DESKTOP_MIN_WIDTH } from "../../reader/utils";
 import { highlightHtmlByQuery } from "../../reader/utils";
 import { toast } from "../../toast/toast";
@@ -119,6 +125,10 @@ export default function ArticleView({
   });
   const markAsRead = useAppStore((state) => state.markAsRead);
   const toggleStar = useAppStore((state) => state.toggleStar);
+  const learningEnabled = useLearningStore((state) => state.enabled);
+  const toggleLearningEnabled = useLearningStore((state) => state.toggleEnabled);
+  const vocabularyOpen = useLearningStore((state) => state.vocabularyOpen);
+  const setVocabularyOpen = useLearningStore((state) => state.setVocabularyOpen);
   const refreshArticle = useAppStore((state) => state.refreshArticle);
   const openArticleInReader = useAppStore((state) => state.openArticleInReader);
   const general = useSettingsStore((state) => state.persistedSettings.general);
@@ -623,6 +633,18 @@ export default function ArticleView({
           ) : null}
         </div>
         <div className="shrink-0 flex items-center gap-2">
+          <ReaderToolbarIconButton
+            icon={BookOpen}
+            label="打开生词本"
+            onClick={() => setVocabularyOpen(true)}
+          />
+          <ReaderToolbarIconButton
+            icon={GraduationCap}
+            label="英语学习模式"
+            toggle
+            pressed={learningEnabled}
+            onClick={toggleLearningEnabled}
+          />
           {showDesktopStarButton ? (
             <ReaderToolbarIconButton
               // Keep desktop star icon fill behavior aligned with inline mobile actions.
@@ -775,6 +797,12 @@ export default function ArticleView({
     () => ({ __html: highlightedBodyHtml }),
     [highlightedBodyHtml],
   );
+  const englishLearning = useEnglishLearning({
+    articleId: currentArticleId,
+    contentRef: articleContentRef,
+    contentHtml: highlightedBodyHtml,
+    isDesktop,
+  });
 
   useEffect(() => {
     const container = articleContentRef.current;
@@ -839,6 +867,7 @@ export default function ArticleView({
         <div className="flex flex-1 items-center justify-center">
           <p className="text-muted-foreground">从列表中选择一篇文章开始阅读</p>
         </div>
+        <VocabularyDrawer open={isDesktop && vocabularyOpen} onOpenChange={setVocabularyOpen} />
       </div>
     );
   }
@@ -1308,6 +1337,8 @@ export default function ArticleView({
               data-testid="article-html-content"
               onClickCapture={onArticleContentClick}
               onKeyDownCapture={onArticleContentKeyDown}
+              onPointerUp={englishLearning.onPointerUp}
+              onDoubleClick={englishLearning.onDoubleClick}
               dangerouslySetInnerHTML={articleBodyMarkup}
             />
 
@@ -1386,6 +1417,16 @@ export default function ArticleView({
             if (!open) setImagePreview(null);
           }}
         />
+        {englishLearning.card ? (
+          <EnglishLearningCard
+            card={englishLearning.card}
+            onClose={englishLearning.close}
+            onRetry={englishLearning.retry}
+            onSave={() => { void englishLearning.saveWord(); }}
+            onOpenSettings={onOpenSettings}
+          />
+        ) : null}
+        <VocabularyDrawer open={isDesktop && vocabularyOpen} onOpenChange={setVocabularyOpen} />
       </div>
     </div>
   );

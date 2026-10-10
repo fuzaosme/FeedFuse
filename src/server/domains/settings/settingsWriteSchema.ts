@@ -11,7 +11,7 @@ const httpUrlSchema = z.string().trim().url().regex(/^https?:\/\//i);
 // 未配置 AI 时允许空地址；填写地址时必须是有效的 HTTP(S) URL。
 const optionalApiBaseUrlSchema = z.union([z.literal(''), httpUrlSchema]);
 
-// PUT 是完整替换：所有配置字段必填，所有对象拒绝未知字段，禁止自动补默认值或强制转换类型。
+// PUT 是完整替换：对象拒绝未知字段；仅新增英语学习提示词允许旧客户端省略。
 // 历史字段迁移和非法旧值兜底由读取侧的 normalizePersistedSettings 独立处理。
 export const settingsWriteSchema: z.ZodType<PersistedSettings> = z.strictObject({
   general: z.strictObject({
@@ -35,6 +35,7 @@ export const settingsWriteSchema: z.ZodType<PersistedSettings> = z.strictObject(
     apiBaseUrl: optionalApiBaseUrlSchema,
     summaryPrompt: z.string().trim(),
     translationPrompt: z.string().trim(),
+    englishLearningPrompt: z.string().trim().default(''),
     translation: z.strictObject({
       useSharedAi: z.boolean(),
       model: z.string(),

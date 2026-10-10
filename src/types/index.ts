@@ -2,6 +2,19 @@ export type FeedKind = 'rss' | 'ai_digest';
 export type FeedProvider = 'local_rss' | 'fever';
 export type UserType = 'initial_admin' | 'admin' | 'member';
 
+export interface VocabularyEntry {
+  id: string;
+  term: string;
+  normalizedTerm: string;
+  definition: string;
+  sourceArticleId: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  sourceSentence: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Feed {
   id: string;
   kind: FeedKind;
@@ -134,6 +147,7 @@ export interface AIPersistedSettings {
   apiBaseUrl: string;
   summaryPrompt: string;
   translationPrompt: string;
+  englishLearningPrompt: string;
   translation: {
     useSharedAi: boolean;
     model: string;

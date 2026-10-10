@@ -7,7 +7,9 @@ import type {
   PersistedSettings,
   SystemLogsPage,
   UserType,
+  VocabularyEntry,
 } from '@/types';
+import { ENGLISH_LEARNING_TIMEOUT_MS } from '@/lib/englishLearning';
 import { notifyApiError } from './apiErrorNotifier';
 import { normalizeFeedAutoTriggerFlags } from '@/lib/feeds/feedAutoTriggerPolicy';
 import { AI_DIGEST_ICON_URL } from '@/lib/feeds/feedIcons';
@@ -922,6 +924,57 @@ export async function patchArticle(
     },
     options,
   );
+}
+
+export async function listVocabulary(
+  options?: RequestApiOptions,
+  signal?: AbortSignal,
+): Promise<{ items: VocabularyEntry[] }> {
+  return requestApi('/api/vocabulary', { cache: 'no-store', signal }, options);
+}
+
+export async function addVocabulary(input: {
+  articleId: string;
+  term: string;
+  definition: string;
+  sourceSentence: string;
+}, options?: RequestApiOptions, signal?: AbortSignal): Promise<{ entry: VocabularyEntry }> {
+  return requestApi('/api/vocabulary', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    signal,
+  }, options);
+}
+
+export async function patchVocabulary(
+  id: string, definition: string, options?: RequestApiOptions, signal?: AbortSignal,
+): Promise<{ entry: VocabularyEntry }> {
+  return requestApi(`/api/vocabulary/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ definition }),
+    signal,
+  }, options);
+}
+
+export async function deleteVocabulary(
+  id: string, options?: RequestApiOptions, signal?: AbortSignal,
+): Promise<{ deleted: true }> {
+  return requestApi(`/api/vocabulary/${encodeURIComponent(id)}`, { method: 'DELETE', signal }, options);
+}
+
+export async function requestEnglishExplanation(
+  articleId: string,
+  input: { selectedText: string; sentences: string[] },
+  signal: AbortSignal,
+): Promise<{ explanation: string }> {
+  return requestApi(`/api/articles/${encodeURIComponent(articleId)}/english-learning`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    signal,
+  }, { timeoutMs: ENGLISH_LEARNING_TIMEOUT_MS, notifyOnError: false });
 }
 
 export async function markAllRead(

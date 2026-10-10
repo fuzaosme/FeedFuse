@@ -5,6 +5,7 @@ import { writeSystemLog } from '@/server/infra/logging/systemLogger';
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 interface OpenAIClientLoggingInput {
+  userId?: string;
   source?: string;
   requestLabel?: string;
   context?: Record<string, unknown>;
@@ -87,7 +88,7 @@ function stringifyExternalError(err: unknown): string {
 }
 
 async function writeOpenAILog(input: {
-  logging: Required<OpenAIClientLoggingInput>;
+  logging: Required<Omit<OpenAIClientLoggingInput, 'userId'>> & Pick<OpenAIClientLoggingInput, 'userId'>;
   apiBaseUrl: string;
   payload: unknown;
   durationMs: number;
@@ -95,6 +96,7 @@ async function writeOpenAILog(input: {
   details: string | null;
 }) {
   await writeSystemLog(getPool(), {
+    ...(input.logging.userId ? { userId: input.logging.userId } : {}),
     level: input.failed ? 'error' : 'info',
     category: 'external_api',
     source: input.logging.source,
@@ -117,6 +119,7 @@ export function createOpenAIClient(
   const fallbackApiBaseUrl = getDockerFallbackBaseUrl(apiBaseUrl);
   const client = buildOpenAIClient(apiBaseUrl, input.apiKey);
   const logging = input.source && input.requestLabel ? {
+    userId: input.userId,
     source: input.source,
     requestLabel: input.requestLabel,
     context: input.context ?? {},
