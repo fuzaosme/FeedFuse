@@ -19,6 +19,8 @@ services:
     build:
       context: .
       target: web
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     command:
       ['sh', '-lc', 'node scripts/db/migrate.mjs && exec node server.js']
     environment:
@@ -49,6 +51,8 @@ services:
     build:
       context: .
       target: worker
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     command:
       ['sh', '-lc', 'node scripts/db/migrate.mjs && exec node node_modules/tsx/dist/cli.mjs --tsconfig config/typescript/tsconfig.json src/worker/index.ts']
     environment:

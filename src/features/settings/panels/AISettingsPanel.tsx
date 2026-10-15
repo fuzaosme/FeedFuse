@@ -5,7 +5,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useRef } from "react";
+import {
+  DEFAULT_ENGLISH_LEARNING_PROMPT,
+  DEFAULT_SUMMARY_PROMPT,
+  DEFAULT_TRANSLATION_PROMPT,
+} from "../../../lib/aiPromptDefaults";
 import type { SettingsDraft } from "../../../store/settingsStore";
+import DefaultPromptDisclosure from "../components/DefaultPromptDisclosure";
 import SettingTooltipLabel from "../components/SettingTooltipLabel";
 
 interface AISettingsPanelProps {
@@ -231,13 +237,17 @@ export default function AISettingsPanel({
               placeholder="例如：用简洁中文总结，先 1-2 句结论，再给 3 条要点。"
               className="min-h-28"
             />
+            <DefaultPromptDisclosure
+              prompt={DEFAULT_SUMMARY_PROMPT}
+              overridden={Boolean(ai.summaryPrompt.trim())}
+            />
           </div>
 
           <div className="px-4 py-3.5">
             <Label htmlFor="ai-english-learning-prompt" className="mb-2 block">
               <SettingTooltipLabel
                 label="英语学习提示词"
-                description="用于选句讲解，复用主 AI 配置。留空使用内置模板，可自由调整译文、句法或重点表达的讲解方式。"
+                description="用于选句讲解，会结合选区所在段落做语境分析。留空使用内置模板；单词卡的「详细解释」使用专用内置提示词，不在此处配置。"
                 className="text-sm font-medium text-foreground"
               />
             </Label>
@@ -252,6 +262,10 @@ export default function AISettingsPanel({
               }
               placeholder="例如：先给自然中文译文，再简要解释句子结构和重点词组。"
               className="min-h-28"
+            />
+            <DefaultPromptDisclosure
+              prompt={DEFAULT_ENGLISH_LEARNING_PROMPT}
+              overridden={Boolean(ai.englishLearningPrompt.trim())}
             />
           </div>
 
@@ -322,6 +336,10 @@ export default function AISettingsPanel({
               }
               placeholder="例如：保持专业术语准确，避免意译过度。"
               className="min-h-28"
+            />
+            <DefaultPromptDisclosure
+              prompt={DEFAULT_TRANSLATION_PROMPT}
+              overridden={Boolean(ai.translationPrompt.trim())}
             />
           </div>
 

@@ -566,6 +566,7 @@ export default function ReaderLayout({ renderedAt, initialSelectedView }: Reader
   return (
     <div
       ref={layoutRef}
+      data-reader-layout={isDesktop ? 'desktop' : isTablet ? 'tablet' : 'mobile'}
       data-testid="reader-layout-root"
       className={cn(
         'relative flex h-screen overflow-hidden bg-background text-foreground dark:bg-[radial-gradient(ellipse_at_top,rgba(15,15,22,0.98)_0%,rgba(7,7,10,0.98)_48%,rgba(2,2,3,1)_100%)]',
@@ -596,6 +597,7 @@ export default function ReaderLayout({ renderedAt, initialSelectedView }: Reader
           />
 
           <div
+            data-reader-pane="articles"
             data-testid="reader-article-pane"
             className={cn(
               'shrink-0 border-r bg-muted/15 transition-colors duration-200 dark:border-white/[0.05] dark:bg-[linear-gradient(180deg,rgba(11,11,15,0.94),rgba(7,7,10,0.9))]',

@@ -111,6 +111,7 @@ export default function FeedDialog({
     actionKey: modeMeta.actionKey,
     categories,
     initialValues,
+    initialUrlVerified: mode === 'edit',
     skipUrlValidation: Boolean(readOnlyFields?.url),
     onSubmit,
     onOpenChange,
@@ -127,6 +128,7 @@ export default function FeedDialog({
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           form.urlInputRef.current?.focus();
+          if (mode === 'add' && initialValues?.url) form.handleUrlBlur(initialValues.url);
         }}
       >
         <DialogHeader>

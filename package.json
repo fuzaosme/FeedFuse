@@ -21,7 +21,8 @@
     "test": "vitest run --config config/vitest/vitest.config.ts",
     "test:unit": "vitest run --config config/vitest/vitest.config.ts",
     "test:unit:watch": "vitest --config config/vitest/vitest.config.ts",
-    "test:relocate": "node scripts/testing/relocate-tests.mjs"
+    "test:relocate": "node scripts/testing/relocate-tests.mjs",
+    "dict:build-core": "node scripts/dictionaries/build-core.mjs"
   },
   "postcss": {
     "plugins": {

@@ -1,12 +1,14 @@
-import { countEnglishWords } from '@/lib/englishLearning';
+import { countEnglishWords, englishWordSpans } from '@/lib/englishLearning';
+import type { SelectionPiece } from './lookupTerms';
 
-const EXCLUDED = [
-  '.ff-translation', '[data-translation]', 'pre', 'code', 'a[href]',
+const EXCLUDED_PARTS = [
+  '.ff-translation', '[data-translation]', 'pre', 'code',
   'button', 'input', 'textarea', 'select', '[contenteditable]',
   '[role="button"]', 'script', 'style', '[hidden]', '[aria-hidden="true"]',
-].join(',');
+];
+const EXCLUDED = EXCLUDED_PARTS.join(',');
 const BLOCKS = 'p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,figcaption,div,section,article';
-// 内联链接和代码可作为完整原句的上下文，但不能成为查词选区。
+// 内联链接可查词；代码仅作为完整原句的上下文。
 const CONTEXT_EXCLUDED = [
   '.ff-translation', '[data-translation]', 'pre', 'button', 'input', 'textarea',
   'select', '[contenteditable]', '[role="button"]', 'script', 'style',
@@ -18,6 +20,8 @@ export interface LearningSelection {
   wordCount: number;
   sentences: string[];
   rect: { left: number; right: number; top: number; bottom: number };
+  /** 选区在文本块内的位置，用于把被截断的单词补全成整词。 */
+  pieces: SelectionPiece[];
 }
 
 type TextSpan = { node: Text; start: number; selectable: boolean };
@@ -28,7 +32,7 @@ function parentElement(node: Node): Element | null {
   return node instanceof Element ? node : node.parentElement;
 }
 
-function textBlocks(root: HTMLElement): TextBlock[] {
+function textBlocks(root: HTMLElement, excluded: string): TextBlock[] {
   const result: TextBlock[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   let current: Node | null;
@@ -44,7 +48,7 @@ function textBlocks(root: HTMLElement): TextBlock[] {
       result.push(block);
     }
     if (current instanceof Text) {
-      block.spans.push({ node: current, start: block.text.length, selectable: !parent.closest(EXCLUDED) });
+      block.spans.push({ node: current, start: block.text.length, selectable: !parent.closest(excluded) });
       block.text += current.data;
     } else {
       block.text += '\n';
@@ -53,38 +57,68 @@ function textBlocks(root: HTMLElement): TextBlock[] {
   return result;
 }
 
-function sentencesInRange(text: string, start: number, end: number): string[] {
+type SentenceSpan = { text: string; start: number; end: number };
+
+function sentenceSpans(text: string): SentenceSpan[] {
   const Segmenter = (Intl as typeof Intl & {
     Segmenter?: new (locale: string, options: { granularity: 'sentence' }) => SentenceSegmenter;
   }).Segmenter;
-  if (!Segmenter) return text.trim() ? [text.trim()] : [];
-  try {
-    const result: string[] = [];
-    for (const part of new Segmenter('en', { granularity: 'sentence' }).segment(text)) {
-      const overlapStart = Math.max(start, part.index);
-      const overlapEnd = Math.min(end, part.index + part.segment.length);
-      if (overlapEnd > overlapStart && text.slice(overlapStart, overlapEnd).trim()) {
-        const sentence = part.segment.trim();
-        if (sentence) result.push(sentence);
-      }
-    }
-    return result;
-  } catch {
-    return text.trim() ? [text.trim()] : [];
+  if (Segmenter) {
+    try {
+      return [...new Segmenter('en', { granularity: 'sentence' }).segment(text)]
+        .map((part) => ({ text: part.segment.trim(), start: part.index, end: part.index + part.segment.length }));
+    } catch { /* 旧环境使用同一套保守的段落回退。 */ }
   }
+  return text.trim() ? [{ text: text.trim(), start: 0, end: text.length }] : [];
+}
+
+/**
+ * 完整主句旁边只擦到最多两个词时裁去那段越界；完整选中的短句始终保留。
+ * 对所有文本块一起判断，因此换行和换段不会改变容错规则。
+ */
+function trimSentenceEdges(pieces: SelectionPiece[]): { pieces: SelectionPiece[]; sentences: string[] } {
+  const overlaps = pieces.flatMap((piece, pieceIndex) => sentenceSpans(piece.context).flatMap((sentence) => {
+    const start = Math.max(piece.start, sentence.start);
+    const end = Math.min(piece.end, sentence.end);
+    const words = englishWordSpans(piece.context.slice(sentence.start, sentence.end));
+    const selectedWords = words.filter((word) =>
+      sentence.start + word.start < end && sentence.start + word.end > start,
+    );
+    if (end <= start || !selectedWords.length) return [];
+    const complete = start <= sentence.start + words[0].start &&
+      end >= sentence.start + words[words.length - 1].end;
+    return [{ pieceIndex, sentence, start, end, count: selectedWords.length, complete }];
+  }));
+  const anchors = overlaps.filter((overlap) => overlap.complete);
+  const isFringe = (overlap: typeof overlaps[number]) => !overlap.complete && overlap.count <= 2 &&
+    anchors.some((anchor) => anchor.count > overlap.count);
+  let first = 0;
+  let last = overlaps.length - 1;
+  // 每一侧最多裁去一条相邻句，不能循环吞掉用户选中的多句话。
+  if (first < last && isFringe(overlaps[first])) first += 1;
+  if (first < last && isFringe(overlaps[last])) last -= 1;
+  const retained = overlaps.slice(first, last + 1);
+  const corrected = pieces.flatMap((piece, pieceIndex) => {
+    const matching = retained.filter((overlap) => overlap.pieceIndex === pieceIndex);
+    if (!matching.length) return [];
+    const start = matching[0].start;
+    const end = matching[matching.length - 1].end;
+    return [{ ...piece, start, end, text: piece.context.slice(start, end) }];
+  });
+  return { pieces: corrected, sentences: retained.map((overlap) => overlap.sentence.text) };
 }
 
 export function readLearningSelection(root: HTMLElement): LearningSelection | null {
+  const excluded = EXCLUDED;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
   const range = selection.getRangeAt(0);
   if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
-  if (parentElement(range.startContainer)?.closest(EXCLUDED) ||
-      parentElement(range.endContainer)?.closest(EXCLUDED)) return null;
+  if (parentElement(range.startContainer)?.closest(excluded) ||
+      parentElement(range.endContainer)?.closest(excluded)) return null;
 
-  const pieces: string[] = [];
-  const sentences: string[] = [];
-  for (const block of textBlocks(root)) {
+  const pieces: SelectionPiece[] = [];
+  for (const block of textBlocks(root, excluded)) {
     let start = Infinity;
     let end = -1;
     for (const span of block.spans) {
@@ -97,16 +131,17 @@ export function readLearningSelection(root: HTMLElement): LearningSelection | nu
       end = Math.max(end, span.start + to);
     }
     if (end <= start || !block.text.slice(start, end).trim()) continue;
-    pieces.push(block.text.slice(start, end));
-    sentences.push(...sentencesInRange(block.text, start, end));
+    pieces.push({ text: block.text.slice(start, end), context: block.text, start, end });
   }
-  const selectedText = pieces.join('\n').trim();
+  const corrected = trimSentenceEdges(pieces);
+  const sentences = corrected.sentences;
+  const selectedText = corrected.pieces.map((piece) => piece.text).join('\n').trim();
   const wordCount = countEnglishWords(selectedText);
   if (!wordCount || !sentences.length) return null;
   const rect = range.getBoundingClientRect();
   if (!rect.width && !rect.height) return null;
   return {
-    selectedText, wordCount, sentences,
+    selectedText, wordCount, sentences, pieces: corrected.pieces,
     rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
   };
 }

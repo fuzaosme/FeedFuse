@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type UIEvent,
 } from "react";
+import { useSelectableArticleLinks } from "../hooks/useSelectableArticleLinks";
 import {
   BookOpen,
   Download,
@@ -50,7 +51,7 @@ import ArticleScrollAssist from "./ArticleScrollAssist";
 import ArticleImagePreview from "./ArticleImagePreview";
 import AiSummaryInlineText from "./AiSummaryInlineText";
 import ReaderToolbarIconButton from "../../reader/components/ReaderToolbarIconButton";
-import EnglishLearningCard from "../../english-learning/components/EnglishLearningCard";
+import EnglishLearningCardStack from "../../english-learning/components/EnglishLearningCardStack";
 import VocabularyDrawer from "../../english-learning/components/VocabularyDrawer";
 import { useEnglishLearning } from "../../english-learning/hooks/useEnglishLearning";
 import { useLearningStore } from "../../english-learning/learningStore";
@@ -70,6 +71,7 @@ const ARTICLE_SUMMARY_BADGE_CLASS_NAME =
 const ARTICLE_SOURCE_BUTTON_CLASS_NAME =
   "flex w-full items-start justify-between gap-3 rounded-xl border border-border/60 bg-[color-mix(in_oklab,var(--color-background)_84%,white_16%)] px-3 py-2 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-primary/16 hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring dark:border-white/[0.06] dark:bg-[linear-gradient(180deg,rgba(14,14,18,0.96),rgba(9,9,12,0.92))] dark:hover:border-[rgba(94,106,210,0.2)] dark:hover:bg-[color-mix(in_oklab,var(--color-primary)_10%,var(--color-card)_90%)]";
 const READER_COMMAND_EVENT_NAME = "feedfuse:reader-command";
+// 单击标题仍跳转原文，但要兼容拖选/双击选词：用短延迟区分单击与选词操作。
 type ReaderArticleCommand = "ai-summary" | "ai-translate";
 
 function getPlayableMediaAttachment(
@@ -145,6 +147,8 @@ export default function ArticleView({
   const lastReportedTitleVisibilityRef = useRef<boolean | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const articleContentRef = useRef<HTMLDivElement | null>(null);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const selectableLinks = useSelectableArticleLinks(article?.id);
   const imagePreviewSequenceRef = useRef(0);
   const scrollStateFrameRef = useRef<number | null>(null);
   const pendingScrollElementRef = useRef<HTMLDivElement | null>(null);
@@ -621,8 +625,14 @@ export default function ArticleView({
               href={article.link}
               target="_blank"
               rel="noopener noreferrer"
+              draggable={false}
               aria-label={`打开原文：${desktopToolbarTitle}`}
-              className="block truncate rounded-sm text-[0.96rem] font-semibold tracking-[0.01em] underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              title="单击打开原文，拖选/双击可选中文字"
+              onMouseDown={selectableLinks.onMouseDown}
+              onClick={selectableLinks.onClick}
+              onDoubleClick={selectableLinks.onDoubleClick}
+              onDragStart={selectableLinks.onDragStart}
+              className="block truncate rounded-sm text-[0.96rem] font-semibold tracking-[0.01em] underline-offset-4 transition-colors select-text hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {desktopToolbarTitle}
             </a>
@@ -797,9 +807,15 @@ export default function ArticleView({
     () => ({ __html: highlightedBodyHtml }),
     [highlightedBodyHtml],
   );
+  useLayoutEffect(() => {
+    articleContentRef.current?.querySelectorAll("a[href]").forEach((anchor) => {
+      anchor.setAttribute("draggable", "false");
+    });
+  }, [article?.id, articleBodyMarkup]);
   const englishLearning = useEnglishLearning({
     articleId: currentArticleId,
     contentRef: articleContentRef,
+    titleRef,
     contentHtml: highlightedBodyHtml,
     isDesktop,
   });
@@ -959,14 +975,28 @@ export default function ArticleView({
             data-testid="article-content-shell"
           >
             <div className="mb-8">
-              <h1 className="mb-4 break-words text-3xl font-bold tracking-tight">
+              <h1
+                ref={titleRef}
+                onPointerUp={englishLearning.onPointerUp}
+                onDoubleClick={() => {
+                  selectableLinks.onDoubleClick();
+                  englishLearning.onDoubleClick();
+                }}
+                className="mb-4 break-words text-3xl font-bold tracking-tight select-text"
+              >
                 {article.link ? (
                   <a
                     href={article.link}
                     target="_blank"
                     rel="noopener noreferrer"
+                    draggable={false}
+                    title="单击打开原文，拖选/双击可选中文字"
+                    onMouseDown={selectableLinks.onMouseDown}
+                    onClick={selectableLinks.onClick}
+                    onDoubleClick={selectableLinks.onDoubleClick}
+                    onDragStart={selectableLinks.onDragStart}
                     className={cn(
-                      "group max-w-full break-words rounded-sm underline-offset-4 transition-colors hover:text-foreground/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                      "group max-w-full break-words rounded-sm underline-offset-4 transition-colors select-text hover:text-foreground/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                       showBilingualTitle
                         ? "inline-flex flex-col items-start gap-1"
                         : "inline-flex items-center gap-2",
@@ -1329,16 +1359,22 @@ export default function ArticleView({
               ref={articleContentRef}
               className={cn(
                 // Tighten article typography contrast without making the surrounding UI feel heavier.
-                "prose max-w-none prose-headings:text-foreground/94 prose-headings:font-semibold prose-p:text-foreground/84 prose-p:font-[450] prose-li:text-foreground/84 prose-li:font-[450] prose-strong:text-foreground/96 prose-blockquote:border-border/90 prose-blockquote:text-foreground/84 prose-figcaption:text-muted-foreground prose-a:text-foreground/94 prose-a:decoration-primary/45 prose-video:my-5 prose-video:w-full prose-video:max-w-full prose-video:rounded-lg prose-video:bg-black dark:prose-invert",
+                "prose max-w-none prose-headings:text-foreground/94 prose-headings:font-semibold prose-p:text-foreground/84 prose-p:font-[450] prose-li:text-foreground/84 prose-li:font-[450] prose-strong:text-foreground/96 prose-blockquote:border-border/90 prose-blockquote:text-foreground/84 prose-figcaption:text-muted-foreground prose-a:text-foreground/94 prose-a:decoration-primary/45 [&_a]:select-text [&_a]:[-webkit-user-drag:none] prose-video:my-5 prose-video:w-full prose-video:max-w-full prose-video:rounded-lg prose-video:bg-black dark:prose-invert",
                 fontSizeClass,
                 lineHeightClass,
                 fontFamilyClass,
               )}
               data-testid="article-html-content"
+              onMouseDown={selectableLinks.onMouseDown}
+              onClick={selectableLinks.onClick}
+              onDragStart={selectableLinks.onDragStart}
               onClickCapture={onArticleContentClick}
               onKeyDownCapture={onArticleContentKeyDown}
               onPointerUp={englishLearning.onPointerUp}
-              onDoubleClick={englishLearning.onDoubleClick}
+              onDoubleClick={() => {
+                selectableLinks.onDoubleClick();
+                englishLearning.onDoubleClick();
+              }}
               dangerouslySetInnerHTML={articleBodyMarkup}
             />
 
@@ -1417,12 +1453,15 @@ export default function ArticleView({
             if (!open) setImagePreview(null);
           }}
         />
-        {englishLearning.card ? (
-          <EnglishLearningCard
-            card={englishLearning.card}
+        {englishLearning.cards.length ? (
+          <EnglishLearningCardStack
+            cards={englishLearning.cards}
             onClose={englishLearning.close}
+            onCloseCard={englishLearning.closeCard}
             onRetry={englishLearning.retry}
-            onSave={() => { void englishLearning.saveWord(); }}
+            onSave={(id) => { void englishLearning.saveWord(id); }}
+            onExplainDetail={(id) => { void englishLearning.explainDetail(id); }}
+            onRetryDetail={englishLearning.retryDetail}
             onOpenSettings={onOpenSettings}
           />
         ) : null}

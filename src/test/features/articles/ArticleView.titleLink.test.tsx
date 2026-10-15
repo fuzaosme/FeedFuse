@@ -110,7 +110,7 @@ describe('ArticleView title link', () => {
           id: 'article-1',
           feedId: 'feed-1',
           title: 'Article 1',
-          content: '<p>content</p>',
+          content: '<p>Read <a href="https://example.com/linked"><em>proposal</em></a> here.</p>',
           summary: 'summary',
           publishedAt: new Date().toISOString(),
           link: 'https://example.com/a1',
@@ -139,6 +139,7 @@ describe('ArticleView title link', () => {
     expect(titleLink).toHaveAttribute('href', 'https://example.com/a1');
     expect(titleLink).toHaveAttribute('target', '_blank');
     expect(titleLink).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('link', { name: 'proposal' })).toHaveAttribute('draggable', 'false');
 
     expect(screen.queryByText('https://example.com/favicon.ico')).not.toBeInTheDocument();
     const feedIcon = screen.getByTestId('article-feed-icon');

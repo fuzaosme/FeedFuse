@@ -15,6 +15,7 @@ interface UseFeedDialogFormOptions {
   actionKey: UserOperationActionKey;
   categories: Category[];
   initialValues?: Partial<FeedDialogInitialValues>;
+  initialUrlVerified?: boolean;
   skipUrlValidation?: boolean;
   onSubmit: (payload: FeedDialogSubmitPayload) => Promise<void>;
   onOpenChange: (open: boolean) => void;
@@ -141,6 +142,7 @@ export function useFeedDialogForm({
   actionKey,
   categories,
   initialValues,
+  initialUrlVerified = true,
   skipUrlValidation = false,
   onSubmit,
   onOpenChange,
@@ -166,9 +168,9 @@ export function useFeedDialogForm({
   const [url, setUrl] = useState(initialUrl);
   const [categoryInput, setCategoryInput] = useState(defaultCategoryInput);
   const [validationState, setValidationState] = useState<ValidationState>(
-    initialTrimmedUrl ? 'verified' : 'idle',
+    initialTrimmedUrl && initialUrlVerified ? 'verified' : 'idle',
   );
-  const [lastVerifiedUrl, setLastVerifiedUrl] = useState<string | null>(initialTrimmedUrl || null);
+  const [lastVerifiedUrl, setLastVerifiedUrl] = useState<string | null>(initialUrlVerified ? initialTrimmedUrl || null : null);
   const [validatedSiteUrl, setValidatedSiteUrl] = useState<string | null>(initialValues?.siteUrl ?? null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [titleTouched, setTitleTouched] = useState(false);

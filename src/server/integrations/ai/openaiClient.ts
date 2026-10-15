@@ -94,6 +94,7 @@ async function writeOpenAILog(input: {
   durationMs: number;
   failed: boolean;
   details: string | null;
+  metrics?: Record<string, unknown>;
 }) {
   await writeSystemLog(getPool(), {
     ...(input.logging.userId ? { userId: input.logging.userId } : {}),
@@ -108,6 +109,7 @@ async function writeOpenAILog(input: {
       model: getCompletionModel(input.payload),
       durationMs: input.durationMs,
       ...input.logging.context,
+      ...input.metrics,
     },
   });
 }
@@ -129,6 +131,16 @@ export function createOpenAIClient(
   client.chat.completions.create = (async (payload, requestOptions) => {
     const startedAt = Date.now();
     let requestApiBaseUrl = apiBaseUrl;
+    const log = (failed: boolean, details: string | null, metrics?: Record<string, unknown>) => {
+      if (!logging) return;
+      // 日志故障不得阻塞首字或把成功的模型请求变成失败。
+      void writeOpenAILog({
+        logging, apiBaseUrl: requestApiBaseUrl, payload,
+        durationMs: Date.now() - startedAt, failed, details, metrics,
+      }).catch(() => {
+        console.warn('[ai.log] 无法记录模型请求日志');
+      });
+    };
 
     try {
       let result;
@@ -146,28 +158,40 @@ export function createOpenAIClient(
         result = await fallbackClient.chat.completions.create(payload, requestOptions);
       }
 
-      if (logging) {
-        await writeOpenAILog({
-          logging,
-          apiBaseUrl: requestApiBaseUrl,
-          payload,
-          durationMs: Date.now() - startedAt,
-          failed: false,
-          details: null,
-        });
+      if (payload.stream && result && Symbol.asyncIterator in result) {
+        const streamReadyMs = Date.now() - startedAt;
+        const iterate = result[Symbol.asyncIterator].bind(result);
+        result[Symbol.asyncIterator] = async function* () {
+          let firstChunkMs: number | null = null;
+          let firstContentMs: number | null = null;
+          let completed = false;
+          let failure: unknown;
+          let finishReason: string | null = null;
+          try {
+            for await (const chunk of { [Symbol.asyncIterator]: iterate }) {
+              firstChunkMs ??= Date.now() - startedAt;
+              const choice = chunk.choices?.[0];
+              if (choice?.delta?.content?.trim()) firstContentMs ??= Date.now() - startedAt;
+              if (choice?.finish_reason) finishReason = choice.finish_reason;
+              yield chunk;
+            }
+            completed = true;
+          } catch (error) {
+            failure = error;
+            throw error;
+          } finally {
+            log(failure !== undefined, failure ? stringifyExternalError(failure) : null, {
+              streamReadyMs, firstChunkMs, firstContentMs, finishReason,
+              aborted: !completed || requestOptions?.signal?.aborted === true,
+            });
+          }
+        };
+      } else {
+        log(false, null);
       }
       return result;
     } catch (err) {
-      if (logging) {
-        await writeOpenAILog({
-          logging,
-          apiBaseUrl: requestApiBaseUrl,
-          payload,
-          durationMs: Date.now() - startedAt,
-          failed: true,
-          details: stringifyExternalError(err),
-        });
-      }
+      log(true, stringifyExternalError(err));
       throw err;
     }
   }) as typeof client.chat.completions.create;

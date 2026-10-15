@@ -1,6 +1,10 @@
 .git
 .github
 .gitignore
+# .env 含 AUTH_INITIAL_PASSWORD / IMAGE_PROXY_SECRET，构建期不需要（应用在运行期由 Compose 注入），
+# 留在构建上下文会被 COPY 进镜像层并随镜像分发。
+.env
+.env.*
 .next
 node_modules
 artifacts

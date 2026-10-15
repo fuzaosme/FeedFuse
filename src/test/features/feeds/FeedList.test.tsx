@@ -6,6 +6,12 @@ const { runImmediateOperationMock } = vi.hoisted(() => ({
   runImmediateOperationMock: vi.fn(),
 }));
 
+// 交互测试只需覆盖代表性来源，避免 jsdom 渲染整个公开目录。
+vi.mock('@/features/feeds/data/rssCatalog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/feeds/data/rssCatalog')>();
+  return { ...actual, RSS_CATALOG: actual.RSS_CATALOG.filter((entry) => ['sspai', 'nasa', 'hn'].includes(entry.id)) };
+});
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -2071,13 +2077,20 @@ describe('FeedList manage', () => {
     });
   });
 
-  it('opens add menu and shows RSS + AI digest entries', async () => {
+  it('opens add menu and shows RSS + AI digest + catalog entries', async () => {
     render(<FeedList />);
 
     fireEvent.click(screen.getByRole('button', { name: '添加订阅' }));
 
     expect(await screen.findByRole('button', { name: '添加 RSS 源' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '添加智能报告' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'RSS 列表' }));
+    fireEvent.change(await screen.findByLabelText('搜索 RSS 来源'), { target: { value: 'NASA' } });
+    expect(await screen.findByRole('dialog', { name: 'RSS 列表' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '添加 NASA' }));
+    expect(await screen.findByRole('dialog', { name: '添加 RSS 源' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'URL', exact: true })).toHaveValue('https://www.nasa.gov/feed/');
+    expect(screen.queryByRole('dialog', { name: 'RSS 列表' })).not.toBeInTheDocument();
   });
 
   it('does not commit again when unrelated app store state changes', () => {

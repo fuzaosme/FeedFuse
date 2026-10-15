@@ -53,11 +53,13 @@ cp .env.example .env
 RSS 网络访问默认使用 `RSS_NETWORK_MODE=public`，只允许公网地址。可选模式：
 
 - `public`：默认，仅允许公网地址
-- `fake-ip`：额外允许 `198.18.0.0/15`
+- `fake-ip`：额外允许 IPv4 `198.18.0.0/15` 和 IPv6 `2001:2::/48`
 - `lan`：额外允许常见 RFC1918 局域网地址
 - `custom`：只额外允许 `RSS_ALLOWED_CIDRS` 里声明的 CIDR
 
 如果你在 Clash、sing-box 等 fake-ip 网络环境下录入 RSS 源，优先改成 `RSS_NETWORK_MODE=fake-ip`。如果你只想放开特定局域网网段，使用 `RSS_NETWORK_MODE=custom` 并设置 `RSS_ALLOWED_CIDRS=192.168.0.0/16,10.0.0.0/8`。
+
+若错误包含 `2001:2::`，这是 IPv6 基准测试网段，可能来自代理的 fake-ip DNS。请在支持该网段的版本中设置 `RSS_NETWORK_MODE=fake-ip`，并重启 Web 和 Worker；源码 Compose 部署需重新构建这两个服务。代理使用其他 fake-ip 网段时，使用 `custom` 并在 `RSS_ALLOWED_CIDRS` 中显式配置对应网段。
 
 本机地址与 Docker 宿主机别名没有默认豁免。开发时访问本机 RSS，可显式设置 `RSS_NETWORK_MODE=custom` 和 `RSS_ALLOWED_CIDRS=127.0.0.1/32,::1/128`；Docker 宿主机需要加入其实际解析到的 IP。`lan` 不额外允许回环地址。这是所有账号共用的部署策略，也适用于正文和媒体抓取；连接时会校验全部 DNS 候选 IP 并使用已校验地址，重定向每一跳同样受限。
 
@@ -178,6 +180,8 @@ docker compose up --build
 ```
 
 复用前面准备好的 `.env`，避免覆盖已有配置。这个入口会从当前源码构建 `web` 和 `worker` 镜像，两者启动时都会执行迁移。容器内数据库地址由 Compose 设置为 `db:5432`。
+
+镜像构建过程中的 corepack 下载 pnpm 和 `pnpm install` 默认访问 `registry.npmjs.org`，不读取宿主机的 `.npmrc`。网络无法直连该地址时构建会在 `pnpm install` 阶段超时失败（`ETIMEDOUT` / `ENETUNREACH`），此时在 `.env` 中设置 `NPM_REGISTRY=https://registry.npmmirror.com` 后重新执行 `docker compose up --build`；直接用 `docker build` 调试镜像时改用 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com`。
 
 根目录 Compose 没有向 Web 传入 `AUTH_COOKIE_SECURE`，生产模式默认使用 Secure Cookie。若要通过 HTTP 验证源码镜像，需要在本地 Compose 覆盖文件的 `web.environment` 中设置 `AUTH_COOKIE_SECURE: 'false'`；正式部署使用 [部署指南](./deploy.md) 中的发布配置。
 

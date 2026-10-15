@@ -79,6 +79,29 @@ describe("AISettingsPanel", () => {
     expect((translationPrompt as HTMLTextAreaElement).value).toBe("请保留术语英文");
   });
 
+  it("shows the built-in prompts for every empty fallback field and toggles them with more/less", () => {
+    render(<Harness />);
+
+    // 三个使用内置兜底模板的提示词都要能看见，且默认折叠不占满页面。
+    expect(screen.getAllByText(/内置默认提示词/)).toHaveLength(3);
+    expect(screen.queryByRole("region", { name: "内置默认提示词内容" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "展开内置默认提示词 more" })[1]);
+    expect(screen.getByRole("region", { name: "内置默认提示词内容" })).toHaveTextContent("英语精读助手");
+
+    fireEvent.click(screen.getByRole("button", { name: "收起内置默认提示词 less" }));
+    expect(screen.queryByRole("region", { name: "内置默认提示词内容" })).not.toBeInTheDocument();
+  });
+
+  it("marks the built-in prompt as inactive once the user writes a custom one", () => {
+    render(<Harness />);
+
+    fireEvent.change(screen.getByLabelText("翻译提示词"), { target: { value: "自定义翻译" } });
+
+    expect(screen.getByText("内置默认提示词（已自定义，当前未生效）")).toBeInTheDocument();
+    expect(screen.getAllByText("内置默认提示词（留空时生效）")).toHaveLength(2);
+  });
+
   it("allows toggling deep thinking", () => {
     render(<Harness />);
 

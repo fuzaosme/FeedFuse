@@ -1,4 +1,4 @@
-import { Bot, Flame, KeyRound, Palette, Rss, ScrollText, type LucideIcon } from 'lucide-react';
+import { BookA, Bot, Flame, KeyRound, Palette, Rss, ScrollText, type LucideIcon } from 'lucide-react';
 import { startTransition, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,6 +27,7 @@ import LogsSettingsPanel from '../panels/LogsSettingsPanel';
 import RssSettingsPanel from '../panels/RssSettingsPanel';
 import SecuritySettingsPanel from '../panels/SecuritySettingsPanel';
 import FeverAccountSettingsPanel from '../panels/FeverAccountSettingsPanel';
+import DictionarySettingsPanel from '../panels/DictionarySettingsPanel';
 import type { OpmlTransferResultSummary } from '../panels/OpmlTransferSection';
 import { useSettingsAutosave } from '../hooks';
 import {
@@ -39,7 +40,7 @@ interface SettingsCenterDrawerProps {
   onClose: () => void;
 }
 
-type SettingsSectionKey = 'general' | 'rss' | 'ai' | 'security' | 'fever' | 'logging';
+type SettingsSectionKey = 'general' | 'rss' | 'ai' | 'dictionary' | 'security' | 'fever' | 'logging';
 
 interface SettingsSectionItem {
   key: SettingsSectionKey;
@@ -51,6 +52,7 @@ const sectionItems: SettingsSectionItem[] = [
   { key: 'general', label: '通用', icon: Palette },
   { key: 'rss', label: 'RSS', icon: Rss },
   { key: 'ai', label: 'AI', icon: Bot },
+  { key: 'dictionary', label: '词典', icon: BookA },
   { key: 'security', label: '账号与安全', icon: KeyRound },
   { key: 'fever', label: 'Fever 账号', icon: Flame },
   { key: 'logging', label: '日志', icon: ScrollText },
@@ -198,6 +200,8 @@ export default function SettingsCenterDrawer({ onClose }: SettingsCenterDrawerPr
     general: validationErrorKeys.filter((field) => field.startsWith('general.')).length,
     rss: validationErrorKeys.filter((field) => field.startsWith('rss.')).length,
     ai: validationErrorKeys.filter((field) => field.startsWith('ai.')).length,
+    // 词典通过独立的下载与启用接口管理，不参与设置草稿校验。
+    dictionary: 0,
     security: 0,
     fever: 0,
     logging: 0,
@@ -399,6 +403,9 @@ export default function SettingsCenterDrawer({ onClose }: SettingsCenterDrawerPr
                           onChange={(updater) => handleDraftChange('ai', updater)}
                           errors={validationErrors}
                         />
+                      </TabsContent>
+                      <TabsContent value="dictionary" className="mt-0 h-full overflow-y-auto">
+                        <DictionarySettingsPanel />
                       </TabsContent>
                       <TabsContent value="security" className="mt-0 h-full overflow-y-auto">
                         <SecuritySettingsPanel />

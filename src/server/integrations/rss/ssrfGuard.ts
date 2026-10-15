@@ -5,8 +5,10 @@ import { getRssNetworkConfig, type RssNetworkConfig } from '@/server/infra/env';
 
 const DOCKER_HOST_ALIAS = 'host.docker.internal';
 const RESERVED_HOSTNAME_SUFFIXES = ['.localhost', '.local', '.test', '.example', '.invalid'];
-const FAKE_IP_BENCHMARK_CIDR_BASE = ipaddr.parse('198.18.0.0');
-const FAKE_IP_BENCHMARK_CIDR_PREFIX = 15;
+const FAKE_IP_BENCHMARK_CIDRS = [
+  ipaddr.parseCIDR('198.18.0.0/15'),
+  ipaddr.parseCIDR('2001:2::/48'),
+] as const;
 const RFC1918_PRIVATE_CIDRS = [
   ipaddr.parseCIDR('10.0.0.0/8'),
   ipaddr.parseCIDR('172.16.0.0/12'),
@@ -80,7 +82,9 @@ function getNetworkConfig(): RssNetworkConfig {
 }
 
 function isBenchmarkTestingIp(addr: ipaddr.IPv4 | ipaddr.IPv6): boolean {
-  return addr.kind() === 'ipv4' && addr.match(FAKE_IP_BENCHMARK_CIDR_BASE, FAKE_IP_BENCHMARK_CIDR_PREFIX);
+  return FAKE_IP_BENCHMARK_CIDRS.some(
+    ([base, prefix]) => addr.kind() === base.kind() && addr.match(base, prefix),
+  );
 }
 
 function isPrivateLanIp(addr: ipaddr.IPv4 | ipaddr.IPv6): boolean {
@@ -112,8 +116,8 @@ function getIpSafety(ip: string): ExternalUrlSafetyResult {
   const range = addr.range();
   const config = getNetworkConfig();
   if (range === 'unicast') return { safe: true };
-  // 本地部署常见 fake-ip 会落到 198.18.0.0/15，这里只做定向兼容。
-  if (range === 'reserved' && config.mode === 'fake-ip' && isBenchmarkTestingIp(addr)) {
+  // 只兼容 IPv4/IPv6 基准测试网段中的 fake-ip；其他保留地址仍按原策略限制。
+  if (config.mode === 'fake-ip' && isBenchmarkTestingIp(addr)) {
     return { safe: true };
   }
   if (config.mode === 'lan' && isPrivateLanIp(addr)) {
@@ -122,7 +126,7 @@ function getIpSafety(ip: string): ExternalUrlSafetyResult {
   if (config.mode === 'custom' && isExplicitlyAllowedByCidrs(addr, config.allowedCidrs)) {
     return { safe: true };
   }
-  if (range === 'reserved' && isBenchmarkTestingIp(addr)) {
+  if (isBenchmarkTestingIp(addr)) {
     return { safe: false, reason: 'fake_ip', address: ip, mode: config.mode };
   }
   if (isPrivateLanIp(addr)) {

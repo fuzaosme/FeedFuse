@@ -28,6 +28,59 @@ vi.mock('@/server/infra/logging/systemLogger', () => ({
 }));
 
 describe('openaiClient', () => {
+  it('日志迟迟未完成也不阻塞模型响应', async () => {
+    createCompletionMock.mockResolvedValue({ choices: [{ message: { content: 'ok' } }] });
+    writeSystemLogMock.mockReturnValue(new Promise(() => {}));
+    const { createOpenAIClient } = await import('@/server/integrations/ai/openaiClient');
+    const client = createOpenAIClient({
+      apiBaseUrl: 'https://api.deepseek.com', apiKey: 'test', source: 'test', requestLabel: 'test',
+    });
+    expect(await client.chat.completions.create({ model: 'deepseek-flash', messages: [] }))
+      .toMatchObject({ choices: [{ message: { content: 'ok' } }] });
+  });
+
+  it('流式日志在消费结束后记录正文首字和完整耗时，而不是连接时间', async () => {
+    let now = 100;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const stream = {
+      async *[Symbol.asyncIterator]() {
+        now = 140;
+        yield { choices: [{ delta: { reasoning_content: '思考' } }] };
+        now = 260;
+        yield { choices: [{ delta: { content: '答案' } }] };
+        now = 310;
+        yield { choices: [{ delta: {}, finish_reason: 'stop' }] };
+      },
+    };
+    createCompletionMock.mockResolvedValue(stream);
+    const { createOpenAIClient } = await import('@/server/integrations/ai/openaiClient');
+    const client = createOpenAIClient({
+      apiBaseUrl: 'https://api.deepseek.com', apiKey: 'test', source: 'test', requestLabel: 'test',
+    });
+    const response = await client.chat.completions.create({ model: 'deepseek-flash', messages: [], stream: true });
+    expect(writeSystemLogMock).not.toHaveBeenCalled();
+    const chunks = [];
+    for await (const chunk of response) chunks.push(chunk);
+    expect(chunks).toHaveLength(3);
+    expect(writeSystemLogMock).toHaveBeenCalledWith(pool, expect.objectContaining({
+      context: expect.objectContaining({
+        durationMs: 210, streamReadyMs: 0, firstChunkMs: 40, firstContentMs: 160, finishReason: 'stop', aborted: false,
+      }),
+    }));
+  });
+
+  it('日志写入失败不会丢失成功响应', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    createCompletionMock.mockResolvedValue({ choices: [{ message: { content: 'ok' } }] });
+    writeSystemLogMock.mockRejectedValue(new Error('database down'));
+    const { createOpenAIClient } = await import('@/server/integrations/ai/openaiClient');
+    const client = createOpenAIClient({
+      apiBaseUrl: 'https://api.deepseek.com', apiKey: 'test', source: 'test', requestLabel: 'test',
+    });
+    expect(await client.chat.completions.create({ model: 'deepseek-flash', messages: [] }))
+      .toMatchObject({ choices: [{ message: { content: 'ok' } }] });
+  });
+
   beforeEach(() => {
     createCompletionMock.mockReset();
     openAIConstructorMock.mockReset();

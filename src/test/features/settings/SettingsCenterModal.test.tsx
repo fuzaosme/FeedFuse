@@ -368,9 +368,16 @@ describe('SettingsCenterModal', () => {
     });
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs[3]).toHaveAttribute('data-testid', 'settings-section-tab-security');
-    expect(tabs[4]).toHaveAttribute('data-testid', 'settings-section-tab-fever');
-    expect(tabs[5]).toHaveAttribute('data-testid', 'settings-section-tab-logging');
+    // 词典管理与学习功能分开，是设置中心里独立的一节。
+    expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
+      'settings-section-tab-general',
+      'settings-section-tab-rss',
+      'settings-section-tab-ai',
+      'settings-section-tab-dictionary',
+      'settings-section-tab-security',
+      'settings-section-tab-fever',
+      'settings-section-tab-logging',
+    ]);
     expect('logs' in (useSettingsStore.getState().draft as Record<string, unknown>)).toBe(false);
   });
 

@@ -4,6 +4,14 @@ FROM node:24-alpine AS base
 WORKDIR /app
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+
+# 构建期 npm 源。默认官方源；网络受限时用镜像源覆盖 corepack 和 pnpm 的下载地址：
+#   docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t fd:latest .
+#   docker compose 场景在 .env 中设置 NPM_REGISTRY。
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY
+ENV NPM_CONFIG_REGISTRY=$NPM_REGISTRY
+
 RUN corepack enable
 
 FROM base AS deps

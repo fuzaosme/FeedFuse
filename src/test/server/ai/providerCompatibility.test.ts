@@ -6,6 +6,55 @@ import {
 } from '@/server/integrations/ai/providerCompatibility';
 
 describe('providerCompatibility', () => {
+  it.each([true, false])('DeepSeek 快速请求显式关闭思考（全局开关 %s）', (enabled) => {
+    const request = applyProviderThinkingConfig({
+      apiBaseUrl: 'https://api.deepseek.com', model: 'deepseek-flash',
+      deepThinkingEnabled: enabled, forceFast: true,
+      request: { model: 'deepseek-flash', temperature: 0.2, messages: [] },
+    });
+    expect(request.reasoning_effort).toBe('none');
+    expect((request as Record<string, unknown>).thinking).toEqual({ type: 'disabled' });
+    expect(request.temperature).toBe(0.2);
+  });
+
+  it('DeepSeek 普通请求关闭全局思考时也显式禁用服务商默认思考', () => {
+    const request = applyProviderThinkingConfig({
+      apiBaseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', deepThinkingEnabled: false,
+      request: { model: 'deepseek-flash', messages: [] },
+    });
+    expect((request as Record<string, unknown>).thinking).toEqual({ type: 'disabled' });
+    expect(request.reasoning_effort).toBe('none');
+  });
+
+  it.each(['https://gateway.example/v1', 'https://api.openai.com/v1'])('普通模型不收到无效推理参数：%s', (apiBaseUrl) => {
+    const request = applyProviderThinkingConfig({
+      apiBaseUrl, model: 'gpt-4o-mini', deepThinkingEnabled: true, forceFast: true,
+      request: { model: 'gpt-4o-mini', temperature: 0.2, messages: [] },
+    });
+    expect(request.reasoning_effort).toBeUndefined();
+    expect((request as Record<string, unknown>).thinking).toBeUndefined();
+  });
+
+  it('OpenAI 推理模型使用支持的档位与输出上限参数', () => {
+    const request = applyProviderThinkingConfig({
+      apiBaseUrl: 'https://api.openai.com/v1', model: 'gpt-5.5', deepThinkingEnabled: false, forceFast: true,
+      request: { model: 'gpt-5.5', temperature: 0.2, max_tokens: 600, messages: [] },
+    });
+    expect(request.reasoning_effort).toBe('none');
+    expect(request.temperature).toBeUndefined();
+    expect(request.max_tokens).toBeUndefined();
+    expect((request as Record<string, unknown>).max_completion_tokens).toBe(600);
+  });
+
+  it('百炼快速请求使用自己的非思考开关', () => {
+    const request = applyProviderThinkingConfig({
+      apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-flash',
+      deepThinkingEnabled: true, forceFast: true, request: { model: 'qwen-flash', messages: [] },
+    });
+    expect((request as Record<string, unknown>).enable_thinking).toBe(false);
+    expect(request.reasoning_effort).toBeUndefined();
+  });
+
   it('adds DeepSeek thinking payload and strips unsupported sampling knobs', () => {
     const request = applyProviderThinkingConfig({
       apiBaseUrl: 'https://api.deepseek.com',
@@ -83,6 +132,14 @@ describe('providerCompatibility', () => {
     expect(
       extractStreamTextDelta({
         choices: [{ delta: { content: '最终答案' } }],
+      }),
+    ).toBe('最终答案');
+  });
+
+  it('同一 delta 里 content 与 reasoning_content 混排时只取正文', () => {
+    expect(
+      extractStreamTextDelta({
+        choices: [{ delta: { content: '最终答案', reasoning_content: '先分析再作答' } }],
       }),
     ).toBe('最终答案');
   });

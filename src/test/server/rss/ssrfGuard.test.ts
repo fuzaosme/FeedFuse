@@ -9,7 +9,12 @@ vi.mock('node:dns/promises', () => {
 });
 
 import { lookup } from 'node:dns/promises';
-import { getExternalUrlSafety, isSafeExternalUrl } from '@/server/integrations/rss/ssrfGuard';
+import {
+  formatExternalUrlSafetyMessage,
+  getExternalUrlSafety,
+  isSafeExternalUrl,
+  safeExternalDnsLookup,
+} from '@/server/integrations/rss/ssrfGuard';
 
 describe('ssrfGuard', () => {
   const lookupMock = vi.mocked(lookup);
@@ -117,6 +122,77 @@ describe('ssrfGuard', () => {
   it('accepts fake-ip addresses when compatibility is enabled', async () => {
     vi.stubEnv('RSS_NETWORK_MODE', 'fake-ip');
     await expect(isSafeExternalUrl('http://198.18.0.1/feed')).resolves.toBe(true);
+  });
+
+  it('explains IPv6 fake-ip rejections with an actionable network mode hint', async () => {
+    vi.stubEnv('RSS_NETWORK_MODE', 'public');
+    lookupMock.mockResolvedValue([
+      { address: '28.0.0.74', family: 4 },
+      { address: '2001:2::4a', family: 6 },
+    ]);
+    const safety = await getExternalUrlSafety('https://daily.test/feed');
+    expect(safety).toEqual({
+      safe: false, reason: 'fake_ip', address: '2001:2::4a', mode: 'public',
+    });
+    expect(formatExternalUrlSafetyMessage(safety)).toContain('RSS_NETWORK_MODE=fake-ip');
+  });
+
+  it.each(['2001:2::', '2001:2::4a', '2001:2:0:ffff:ffff:ffff:ffff:ffff'])(
+    'accepts IPv6 benchmark fake-ip addresses in compatibility mode: %s', async (address) => {
+      vi.stubEnv('RSS_NETWORK_MODE', 'fake-ip');
+      await expect(isSafeExternalUrl(`http://[${address}]/feed`)).resolves.toBe(true);
+    },
+  );
+
+  it.each(['public', 'lan', 'custom'])(
+    'rejects IPv6 benchmark fake-ip without explicit permission in %s mode', async (mode) => {
+      vi.stubEnv('RSS_NETWORK_MODE', mode);
+      await expect(isSafeExternalUrl('http://[2001:2::4a]/feed')).resolves.toBe(false);
+    },
+  );
+
+  it('accepts IPv6 fake-ip within an explicit custom CIDR only', async () => {
+    vi.stubEnv('RSS_NETWORK_MODE', 'custom');
+    vi.stubEnv('RSS_ALLOWED_CIDRS', '2001:2::4a/128');
+    await expect(isSafeExternalUrl('http://[2001:2::4a]/feed')).resolves.toBe(true);
+    await expect(isSafeExternalUrl('http://[2001:2::4b]/feed')).resolves.toBe(false);
+  });
+
+  it.each(['2001:2:1::1', '2001:db8::1', 'fc00::1', 'fe80::1', '::1'])(
+    'keeps other restricted IPv6 addresses blocked in fake-ip mode: %s', async (address) => {
+      vi.stubEnv('RSS_NETWORK_MODE', 'fake-ip');
+      await expect(isSafeExternalUrl(`http://[${address}]/feed`)).resolves.toBe(false);
+    },
+  );
+
+  it('accepts mixed IPv4/IPv6 fake-ip answers at preflight and connection time', async () => {
+    vi.stubEnv('RSS_NETWORK_MODE', 'fake-ip');
+    const addresses = [
+      { address: '198.18.0.74', family: 4 },
+      { address: '2001:2::4a', family: 6 },
+    ];
+    lookupMock.mockResolvedValue(addresses);
+    await expect(isSafeExternalUrl('https://daily.test/feed')).resolves.toBe(true);
+    await expect(new Promise((resolve, reject) => {
+      safeExternalDnsLookup('daily.test', { all: true }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    })).resolves.toEqual(addresses);
+  });
+
+  it('blocks mixed fake-ip/private DNS answers at connection time', async () => {
+    vi.stubEnv('RSS_NETWORK_MODE', 'fake-ip');
+    lookupMock.mockResolvedValue([
+      { address: '2001:2::4a', family: 6 },
+      { address: '192.168.1.10', family: 4 },
+    ]);
+    await expect(new Promise((resolve, reject) => {
+      safeExternalDnsLookup('daily.test', { all: true }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    })).rejects.toThrow('Unsafe URL');
   });
 
   it('accepts IPv4-mapped fake-ip DNS answers when compatibility is enabled', async () => {

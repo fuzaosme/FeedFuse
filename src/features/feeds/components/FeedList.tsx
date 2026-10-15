@@ -39,12 +39,14 @@ import { runImmediateOperation } from '../../notifications/userOperationNotifier
 import { cn } from '@/lib/utils';
 import { AI_DIGEST_VIEW_ID } from '@/lib/reader/view';
 import { useHydratedSelectedView } from '../../../hooks';
+import type { RssCatalogEntry } from '../data/rssCatalog';
 
 const uncategorizedName = '未分类';
 const uncategorizedId = 'cat-uncategorized';
 const LEFT_RAIL_UNREAD_BADGE_CLASS_NAME =
   'border-border/60 bg-[color-mix(in_oklab,var(--color-background)_86%,white_14%)] text-muted-foreground dark:border-white/[0.08] dark:bg-[color-mix(in_oklab,var(--color-primary)_10%,var(--color-card)_90%)] dark:text-foreground/86';
 const AddFeedDialog = dynamic(() => import('./AddFeedDialog'), { ssr: false, loading: () => null });
+const RssCatalogDialog = dynamic(() => import('./RssCatalogDialog'), { ssr: false, loading: () => null });
 const AddAiDigestDialog = dynamic(() => import('./AddAiDigestDialog'), { ssr: false, loading: () => null });
 const EditFeedDialog = dynamic(() => import('./EditFeedDialog'), { ssr: false, loading: () => null });
 const EditAiDigestDialog = dynamic(() => import('./EditAiDigestDialog'), { ssr: false, loading: () => null });
@@ -89,6 +91,8 @@ export default function FeedList({
   const removeFeed = useAppStore((state) => state.removeFeed);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addFeedOpen, setAddFeedOpen] = useState(false);
+  const [rssCatalogOpen, setRssCatalogOpen] = useState(false);
+  const [catalogSelection, setCatalogSelection] = useState<RssCatalogEntry | null>(null);
   const [addAiDigestOpen, setAddAiDigestOpen] = useState(false);
   const [editFeedId, setEditFeedId] = useState<string | null>(null);
   const [editAiDigestFeedId, setEditAiDigestFeedId] = useState<string | null>(null);
@@ -123,7 +127,10 @@ export default function FeedList({
     { id: AI_DIGEST_VIEW_ID, name: '智能报告', Icon: Sparkles, unreadCount: aiDigestUnreadCount },
   ] as const;
 
-  const openAddFeedModal = () => setAddFeedOpen(true);
+  const openAddFeedModal = () => {
+    setCatalogSelection(null);
+    setAddFeedOpen(true);
+  };
   const openAddAiDigestModal = () => setAddAiDigestOpen(true);
 
   const handleCategoryKeyDown = (
@@ -401,6 +408,18 @@ export default function FeedList({
                   }}
                 >
                   添加智能报告
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-full justify-start"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    setRssCatalogOpen(true);
+                  }}
+                >
+                  RSS 列表
                 </Button>
               </div>
             </PopoverContent>
@@ -795,7 +814,25 @@ export default function FeedList({
           open
           onOpenChange={setAddFeedOpen}
           categories={categoryMaster}
+          initialValues={catalogSelection ? {
+            title: catalogSelection.title,
+            url: catalogSelection.url,
+            siteUrl: catalogSelection.siteUrl,
+          } : undefined}
           onSubmit={(payload) => addFeed(payload)}
+        />
+      ) : null}
+
+      {rssCatalogOpen ? (
+        <RssCatalogDialog
+          open
+          onOpenChange={setRssCatalogOpen}
+          subscribedUrls={feeds.map((feed) => feed.url)}
+          onSelect={(entry) => {
+            setCatalogSelection(entry);
+            setRssCatalogOpen(false);
+            setAddFeedOpen(true);
+          }}
         />
       ) : null}
 

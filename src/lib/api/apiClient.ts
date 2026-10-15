@@ -1,4 +1,5 @@
 import type { FeverBatchReadTask, MarkAllReadResult } from '@/types/feverBatchRead';
+import type { DictionaryLookupResult, DictionarySummary } from '@/types/dictionaries';
 import ky from 'ky';
 import type {
   Article,
@@ -35,6 +36,11 @@ export class ApiError extends Error {
     this.status = options?.status;
     this.cause = options?.cause;
   }
+}
+
+/** 仅在服务端明确不支持流式协议、且尚未显示正文时兼容旧接口。 */
+export function canFallbackEnglishStream(error: unknown, receivedText: boolean): boolean {
+  return !receivedText && error instanceof ApiError && error.code === 'stream_unsupported';
 }
 
 type ApiOk<T> = { ok: true; data: T };
@@ -964,9 +970,304 @@ export async function deleteVocabulary(
   return requestApi(`/api/vocabulary/${encodeURIComponent(id)}`, { method: 'DELETE', signal }, options);
 }
 
+export async function listDictionaries(
+  options?: RequestApiOptions,
+  signal?: AbortSignal,
+): Promise<{ items: DictionarySummary[] }> {
+  return requestApi('/api/dictionaries', { cache: 'no-store', signal }, options);
+}
+
+export async function installDictionary(
+  id: string,
+  options?: RequestApiOptions,
+): Promise<{ item: DictionarySummary }> {
+  return requestApi('/api/dictionaries', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }, options);
+}
+
+export async function installCustomDictionary(
+  sourceUrl: string,
+  options?: RequestApiOptions,
+): Promise<{ item: DictionarySummary }> {
+  return requestApi('/api/dictionaries', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceUrl }),
+  }, options);
+}
+
+export async function setDictionaryEnabled(
+  id: string,
+  enabled: boolean,
+  options?: RequestApiOptions,
+): Promise<{ item: DictionarySummary }> {
+  return requestApi(`/api/dictionaries/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  }, options);
+}
+
+export async function deleteDictionary(
+  id: string,
+  options?: RequestApiOptions,
+): Promise<{ deleted: true }> {
+  return requestApi(`/api/dictionaries/${encodeURIComponent(id)}`, { method: 'DELETE' }, options);
+}
+
+export async function lookupServerDictionary(
+  term: string,
+  options?: RequestApiOptions,
+  signal?: AbortSignal,
+): Promise<{ result: DictionaryLookupResult }> {
+  return requestApi(
+    `/api/dictionaries/lookup?term=${encodeURIComponent(term)}`,
+    { cache: 'no-store', signal },
+    options,
+  );
+}
+
+/**
+ * 精读链路 SSE 增量回调：服务端每推送一个 `learning.delta` 就把当前累积文本回传一次，
+ * 调用方（useEnglishLearning）据此边收边渲染，实现体感首字即时显示。
+ */
+export type EnglishStreamDeltaHandler = (partial: string) => void;
+
+interface EnglishStreamRequestOptions {
+  timeoutMs?: number;
+  onDelta?: EnglishStreamDeltaHandler;
+}
+
+function linkStreamSignal(signal: AbortSignal, timeoutMs: number): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  /** 超时后为 true；调用方可据此区分“用户主动取消”和“服务端思考太久超时”。 */
+  timedOut: () => boolean;
+} {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  if (signal.aborted) {
+    controller.abort(signal.reason);
+  } else {
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort(new DOMException('English learning stream timed out', 'TimeoutError'));
+  }, timeoutMs);
+  // 超时计时器不能拖住进程退出。
+  if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+    (timer as { unref: () => void }).unref();
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+    },
+    timedOut: () => didTimeout,
+  };
+}
+
+/**
+ * 解析精读 SSE 流：`learning.delta` 累积并回调、`learning.done` 定稿、
+ * `learning.error` 转为 ApiError。返回完整讲解文本。
+ */
+async function readEnglishStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onDelta: EnglishStreamDeltaHandler | undefined,
+  signal: AbortSignal,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  let completed = false;
+
+  const handleEvent = (event: string, rawData: string): void => {
+    if (!rawData) return;
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(rawData);
+    } catch {
+      return;
+    }
+    if (!isRecord(payload)) return;
+    if (event === 'learning.delta' && typeof payload.delta === 'string' && payload.delta) {
+      full += payload.delta;
+      onDelta?.(full);
+    } else if (event === 'learning.done' && typeof payload.explanation === 'string') {
+      completed = true;
+      // 服务端经过 thinking 过滤的定稿为准；为空时沿用累积文本。
+      if (payload.explanation) full = payload.explanation;
+      else onDelta?.(full);
+    } else if (event === 'learning.error') {
+      const code = typeof payload.code === 'string' ? payload.code : 'ai_request_failed';
+      const message = typeof payload.message === 'string' ? payload.message : '暂时无法生成讲解，请重试';
+      throw new ApiError(message, code);
+    }
+  };
+
+  for (;;) {
+    if (signal.aborted) {
+      // 超时和用户取消都走这里中断读流；具体是哪一种由调用方按原始 signal 判定，
+      // 这里统一按“可重试的超时”抛，调用方在用户主动取消时不再回退重试。
+      throw new ApiError('讲解请求超时，请重试', 'timeout', undefined, { cause: signal.reason });
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = '';
+      let data = '';
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+        // 以 ':' 开头的 keep-alive 注释直接忽略。
+      }
+      handleEvent(event, data);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  if (!completed) throw new ApiError('讲解连接中断，已保留收到的内容，请重试', 'incomplete_stream');
+  return full;
+}
+
+/**
+ * 精读 POST 的流式版本：走 `?stream=1` SSE 边收边渲染。
+ * 任何失败都直接抛给调用方，由调用方决定是否回退到 Buffered JSON；
+ * Abort/超时通过关联 signal 保证，调用方透传原始 signal 即可中断。
+ */
+async function postEnglishLearningStream(
+  path: string,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+  options?: EnglishStreamRequestOptions,
+  fallbackMessage = '暂时无法生成讲解，请重试',
+): Promise<{ explanation: string }> {
+  const timeoutMs = options?.timeoutMs ?? ENGLISH_LEARNING_TIMEOUT_MS;
+  const linked = linkStreamSignal(signal, timeoutMs);
+  try {
+    let res: Response;
+    try {
+      res = await fetch(toAbsoluteUrl(`${path}?stream=1`), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+        signal: linked.signal,
+        credentials: 'same-origin',
+      });
+    } catch (err) {
+      // 用户主动取消：直接透出，不触发回退重试（调用方检测到原始 signal 已 abort 会静默返回）。
+      if (signal.aborted) {
+        throw new ApiError('已取消讲解请求', 'aborted', undefined, { cause: err });
+      }
+      // 流超时：linked 超时 abort，但原始 signal 未 abort，调用方可回退到 Buffered 重试一次。
+      if (linked.timedOut() || linked.signal.aborted) {
+        throw new ApiError('讲解请求超时，请重试', 'timeout', undefined, { cause: err });
+      }
+      throw new ApiError('网络异常，请检查网络后重试', 'network_error', undefined, { cause: err });
+    }
+    const contentType = res.headers.get('content-type') ?? '';
+    if ([406, 415, 501].includes(res.status)) {
+      await res.body?.cancel();
+      throw new ApiError('当前服务不支持流式讲解', 'stream_unsupported', undefined, { status: res.status });
+    }
+    if (!contentType.includes('text/event-stream') || !res.body) {
+      // 服务端未返回 SSE（例如错误包）：按 Buffered 信封解析，保持原错误语义。
+      const json: unknown = await res.json().catch(() => null);
+      if (isRecord(json) && typeof json.ok === 'boolean') {
+        const envelope = json as ApiEnvelope<{ explanation: string }>;
+        if (envelope.ok) return envelope.data;
+        const payload = envelope.error;
+        throw new ApiError(
+          payload?.message ?? fallbackMessage,
+          payload?.code ?? 'unknown_error',
+          payload?.fields,
+          { status: res.status },
+        );
+      }
+      throwInvalidResponseApiError(res.status, options);
+    }
+    if (!res.ok) {
+      throwInvalidResponseApiError(res.status, options);
+    }
+    const reader = res.body.getReader();
+    let full: string;
+    try {
+      full = await readEnglishStream(reader, options?.onDelta, linked.signal);
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+    if (!full) {
+      throw new ApiError(fallbackMessage, 'invalid_response', undefined, { status: res.status });
+    }
+    return { explanation: full };
+  } finally {
+    linked.cleanup();
+  }
+}
+
+export interface EnglishStreamCallOptions {
+  timeoutMs?: number;
+  onDelta?: EnglishStreamDeltaHandler;
+}
+
+/**
+ * 句子讲解流式版：优先 SSE，调用方（useEnglishLearning）失败时回退到
+ * requestEnglishExplanation（Buffered），因此 Abort/超时/重试/缓存语义保持不变。
+ */
+export async function streamEnglishExplanation(
+  articleId: string,
+  input: { selectedText: string; sentences: string[]; context: string },
+  signal: AbortSignal,
+  options?: EnglishStreamCallOptions,
+): Promise<{ explanation: string }> {
+  return postEnglishLearningStream(
+    `/api/articles/${encodeURIComponent(articleId)}/english-learning`,
+    {
+      selectedText: input.selectedText,
+      sentences: input.sentences,
+      context: input.context,
+    },
+    signal,
+    { timeoutMs: options?.timeoutMs ?? ENGLISH_LEARNING_TIMEOUT_MS, onDelta: options?.onDelta },
+  );
+}
+
+/**
+ * 单词详细解释流式版：与 streamEnglishExplanation 同理，失败时回退到 requestWordDetail。
+ */
+export async function streamWordDetail(
+  articleId: string,
+  input: { term: string; selectedText: string; sentences: string[]; context: string },
+  signal: AbortSignal,
+  options?: EnglishStreamCallOptions,
+): Promise<{ explanation: string }> {
+  return postEnglishLearningStream(
+    `/api/articles/${encodeURIComponent(articleId)}/english-learning/word-detail`,
+    {
+      term: input.term,
+      selectedText: input.selectedText,
+      sentences: input.sentences,
+      context: input.context,
+    },
+    signal,
+    { timeoutMs: options?.timeoutMs ?? ENGLISH_LEARNING_TIMEOUT_MS, onDelta: options?.onDelta },
+    '暂时无法生成详细解释，请重试',
+  );
+}
+
 export async function requestEnglishExplanation(
   articleId: string,
-  input: { selectedText: string; sentences: string[] },
+  input: { selectedText: string; sentences: string[]; context: string },
   signal: AbortSignal,
 ): Promise<{ explanation: string }> {
   return requestApi(`/api/articles/${encodeURIComponent(articleId)}/english-learning`, {
@@ -975,6 +1276,24 @@ export async function requestEnglishExplanation(
     body: JSON.stringify(input),
     signal,
   }, { timeoutMs: ENGLISH_LEARNING_TIMEOUT_MS, notifyOnError: false });
+}
+
+/** 单词卡「详细解释」：服务端固定使用专用提示词，客户端不传提示词。 */
+export async function requestWordDetail(
+  articleId: string,
+  input: { term: string; selectedText: string; sentences: string[]; context: string },
+  signal: AbortSignal,
+): Promise<{ explanation: string }> {
+  return requestApi(
+    `/api/articles/${encodeURIComponent(articleId)}/english-learning/word-detail`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+      signal,
+    },
+    { timeoutMs: ENGLISH_LEARNING_TIMEOUT_MS, notifyOnError: false },
+  );
 }
 
 export async function markAllRead(
