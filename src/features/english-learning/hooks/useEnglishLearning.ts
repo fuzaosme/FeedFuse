@@ -5,6 +5,7 @@ import { cleanVocabularyTerm, ENGLISH_LEARNING_CACHE_VERSION, ENGLISH_LEARNING_M
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useLearningStore } from '../learningStore';
+import { useVocabularyStore } from '../vocabularyStore';
 import { buildSelectionContext } from '../utils/context';
 import { lookupDictionary, warmLearningDictionaries, type DictionaryResult } from '../utils/dictionary';
 import { completeLearningSelection, resolveLookupPlan, resolveSelectionMode, type LookupPlan } from '../utils/lookupTerms';
@@ -422,12 +423,14 @@ export function useEnglishLearning({ articleId, contentRef, titleRef, contentHtm
     saveControllers.current.set(id, abort);
     update(requestId, id, { saving: true, error: '' });
     try {
-      await addVocabulary({
+      const result = await addVocabulary({
         articleId: current.articleId,
         term: current.term,
         definition: current.dictionary?.status === 'found' ? current.dictionary.entry.meanings.join('\n') : '',
         sourceSentence: current.selection.sentences.join('\n'),
       }, { notifyOnError: false }, abort.signal);
+      if (abort.signal.aborted) return;
+      useVocabularyStore.getState().upsert(result.entry, current.userId);
       update(requestId, id, { saving: false, saved: true });
     } catch (error) {
       if (abort.signal.aborted) return;

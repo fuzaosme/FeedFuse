@@ -55,6 +55,9 @@ import EnglishLearningCardStack from "../../english-learning/components/EnglishL
 import VocabularyDrawer from "../../english-learning/components/VocabularyDrawer";
 import { useEnglishLearning } from "../../english-learning/hooks/useEnglishLearning";
 import { useLearningStore } from "../../english-learning/learningStore";
+import { useVocabularyStore } from "../../english-learning/vocabularyStore";
+import { emphasizeVocabulary } from "../../english-learning/utils/emphasizeVocabulary";
+import { useAuthStore } from "@/store/authStore";
 import { READER_RESIZE_DESKTOP_MIN_WIDTH } from "../../reader/utils";
 import { highlightHtmlByQuery } from "../../reader/utils";
 import { toast } from "../../toast/toast";
@@ -131,6 +134,13 @@ export default function ArticleView({
   const toggleLearningEnabled = useLearningStore((state) => state.toggleEnabled);
   const vocabularyOpen = useLearningStore((state) => state.vocabularyOpen);
   const setVocabularyOpen = useLearningStore((state) => state.setVocabularyOpen);
+  const userId = useAuthStore((state) => state.currentUser?.id);
+  const vocabularyItems = useVocabularyStore((state) => state.items);
+  const loadVocabulary = useVocabularyStore((state) => state.load);
+  const vocabularyTerms = useMemo(
+    () => vocabularyItems.map((entry) => entry.normalizedTerm),
+    [vocabularyItems],
+  );
   const refreshArticle = useAppStore((state) => state.refreshArticle);
   const openArticleInReader = useAppStore((state) => state.openArticleInReader);
   const general = useSettingsStore((state) => state.persistedSettings.general);
@@ -169,6 +179,9 @@ export default function ArticleView({
   const feedBodyTranslateOnOpenEnabled =
     feed?.bodyTranslateOnOpenEnabled ?? false;
   const currentArticleId = article?.id ?? null;
+  useEffect(() => {
+    if (currentArticleId && userId) void loadVocabulary();
+  }, [currentArticleId, userId, loadVocabulary]);
   const immersiveTranslation = useImmersiveTranslation({
     articleId: currentArticleId,
   });
@@ -804,8 +817,8 @@ export default function ArticleView({
     [bodyHtml, highlightQuery],
   );
   const articleBodyMarkup = useMemo(
-    () => ({ __html: highlightedBodyHtml }),
-    [highlightedBodyHtml],
+    () => ({ __html: emphasizeVocabulary(highlightedBodyHtml, vocabularyTerms) }),
+    [highlightedBodyHtml, vocabularyTerms],
   );
   useLayoutEffect(() => {
     articleContentRef.current?.querySelectorAll("a[href]").forEach((anchor) => {
@@ -842,7 +855,7 @@ export default function ArticleView({
       // 文章正文视频来自已清洗 HTML，这里只补齐阅读器内的响应式呈现样式。
       node.classList.add("my-5", "w-full", "max-w-full", "rounded-lg", "bg-black");
     }
-  }, [highlightedBodyHtml]);
+  }, [articleBodyMarkup]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

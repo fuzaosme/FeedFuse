@@ -33,5 +33,6 @@ artifacts/
 
 .env
 .superpowers
+.agent-teams
 
 *.tsbuildinfo

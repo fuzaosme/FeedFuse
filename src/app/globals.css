@@ -3,6 +3,15 @@
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 生词提示沿用正文颜色，只增加字重；作者原有的粗体和搜索提示保留。 */
+.prose .ff-vocabulary-word {
+  font-weight: 600;
+}
+
+.prose :is(strong, b, h1, h2, h3, h4, h5, h6, mark[data-search-highlight]) .ff-vocabulary-word {
+  font-weight: inherit;
+}
+
 @layer theme {
   @theme default {
     --color-background: hsl(210 20% 98%);

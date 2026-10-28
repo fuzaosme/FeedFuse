@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Loader2, Pencil, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
-import { deleteVocabulary, listVocabulary, patchVocabulary } from '@/lib/api/apiClient';
+import { deleteVocabulary, patchVocabulary } from '@/lib/api/apiClient';
 import { FROSTED_HEADER_CLASS_NAME } from '@/lib/ui/designSystem';
 import { normalizeVocabularyTerm } from '@/lib/englishLearning';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import type { VocabularyEntry } from '@/types';
+import { useVocabularyStore } from '../vocabularyStore';
 
 function VocabularyItem({ entry, onUpdate, onDelete }: {
   entry: VocabularyEntry;
@@ -95,31 +96,17 @@ function VocabularyItem({ entry, onUpdate, onDelete }: {
 }
 
 function VocabularyContent() {
-  const [items, setItems] = useState<VocabularyEntry[]>([]);
+  const userId = useAuthStore((state) => state.currentUser?.id);
+  const items = useVocabularyStore((state) => state.items);
+  const loading = useVocabularyStore((state) => state.loading);
+  const error = useVocabularyStore((state) => state.error);
+  const load = useVocabularyStore((state) => state.load);
+  const upsert = useVocabularyStore((state) => state.upsert);
+  const remove = useVocabularyStore((state) => state.remove);
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const requestRef = useRef<AbortController | null>(null);
-
-  const load = useCallback(async () => {
-    requestRef.current?.abort();
-    const controller = new AbortController();
-    requestRef.current = controller;
-    setLoading(true);
-    setError('');
-    try {
-      const result = await listVocabulary({ notifyOnError: false }, controller.signal);
-      if (!controller.signal.aborted) setItems(result.items);
-    } catch (err) {
-      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : '生词本加载失败');
-    } finally {
-      if (!controller.signal.aborted) setLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
-    void load();
-    return () => requestRef.current?.abort();
+    void load(true);
   }, [load]);
 
   const filtered = useMemo(() => {
@@ -152,13 +139,13 @@ function VocabularyContent() {
         ) : error ? (
           <div className="space-y-3 py-6 text-center">
             <p role="alert" className="text-sm text-destructive">{error}</p>
-            <Button size="sm" variant="outline" onClick={() => { void load(); }}>重试</Button>
+            <Button size="sm" variant="outline" onClick={() => { void load(true); }}>重试</Button>
           </div>
         ) : filtered.length ? (
           <ul className="space-y-3">
             {filtered.map((entry) => <VocabularyItem key={entry.id} entry={entry}
-              onUpdate={(updated) => setItems((current) => current.map((item) => item.id === updated.id ? updated : item))}
-              onDelete={(id) => setItems((current) => current.filter((item) => item.id !== id))} />)}
+              onUpdate={(updated) => upsert(updated, userId)}
+              onDelete={(id) => remove(id, userId)} />)}
           </ul>
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">
@@ -177,7 +164,7 @@ export default function VocabularyDrawer({ open, onOpenChange }: { open: boolean
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg" closeLabel="关闭生词本">
         <div className={cn(FROSTED_HEADER_CLASS_NAME, 'px-5 pb-4 pt-5 pr-12')}>
           <SheetTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5" />生词本</SheetTitle>
-          <SheetDescription className="mt-1.5">保存阅读中遇到的单词和词组，随时补充释义。</SheetDescription>
+          <SheetDescription className="mt-1.5">保存阅读中遇到的单词和词组，再次遇到时会在正文中轻微加粗。</SheetDescription>
         </div>
         {open ? <VocabularyContent key={userId ?? 'anonymous'} /> : null}
       </SheetContent>
